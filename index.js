@@ -40,6 +40,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 app.use('/uploads', express.static('uploads'));
 
+// Trust the first proxy (e.g., Nginx)
+app.set('trust proxy', 1);
+
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
