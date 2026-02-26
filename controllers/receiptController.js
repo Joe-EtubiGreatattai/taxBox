@@ -1,7 +1,6 @@
 const { analyzeReceiptWithOpenAI, analyzeStatementPdfWithOpenAI } = require('../services/openaiService');
 const mongoose = require('mongoose');
 const { emitToUser } = require('../services/socketService');
-const { sendPushToToken } = require('../services/pushService');
 const { calculateFromMonthly } = require('../services/salaryTaxCalculator');
 const User = require('../models/User');
 
@@ -339,16 +338,6 @@ async function processBulkTransactionsPdfForUser(userId, fileBuffer, originalNam
       totalAmount,
       totalTax,
     });
-
-    // Send push notification to user
-    if (user.expoPushToken) {
-      await sendPushToToken(user.expoPushToken, {
-        title: 'Statement Analysis Complete 📄',
-        message: `We've finished analyzing your statement. ${createdCount} transactions were added to your records.`,
-        data: { type: 'statement_analysis', createdCount }
-      });
-      console.log('🔔 [BG] Sent completion push notification to user');
-    }
 
   } catch (error) {
     console.error('❌ [BG] Bulk PDF processing error:', error.message);

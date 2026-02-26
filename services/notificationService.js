@@ -1,7 +1,6 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { getUserTaxStatus } = require('./userService');
-const pushService = require('./pushService');
 const taxNewsService = require('./taxNewsService');
 
 class NotificationService {
@@ -37,9 +36,7 @@ class NotificationService {
 
       // Save notifications
       if (notifications.length > 0) {
-        const created = await Notification.create(notifications);
-        // Fire push notifications for each newly created item
-        await pushService.sendNotificationsToUser(userId, created);
+        await Notification.create(notifications);
       }
 
       return notifications;
@@ -52,9 +49,6 @@ class NotificationService {
   async createNotification(notificationData) {
     try {
       const created = await Notification.create(notificationData);
-      if (created && created.user) {
-        await pushService.sendNotificationToUser(created.user, created);
-      }
       return created;
     } catch (error) {
       console.error('Error creating notification:', error);
@@ -94,14 +88,7 @@ class NotificationService {
         },
       }));
 
-      const created = await Notification.create(notifications);
-
-      // Fire push notifications as well
-      for (const n of created) {
-        if (n.user) {
-          await pushService.sendNotificationToUser(n.user, n);
-        }
-      }
+      await Notification.create(notifications);
     } catch (error) {
       console.error('Error sending tax news digest notifications:', error);
     }

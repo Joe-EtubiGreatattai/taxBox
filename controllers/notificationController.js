@@ -3,7 +3,6 @@ const User = require('../models/User');
 const { getUserTaxStatus } = require('../services/userService');
 const { emitToUser } = require('../services/socketService');
 const { chatWithMercy } = require('../services/openaiService');
-const { sendPushToToken } = require('../services/pushService');
 
 // Get all notifications for user
 const getNotifications = async (req, res) => {
@@ -333,23 +332,12 @@ const sendTestAiNotification = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (!user.expoPushToken) {
-      return res.status(400).json({ success: false, message: 'User has no push token' });
-    }
-
     // Generate AI message
     const prompt = `Hey Nas! Send me a short, fun test notification to see if my push notifications are working. Keep it under 15 words.`;
     const aiResponse = await chatWithMercy(prompt, []);
     const message = aiResponse.content;
 
     console.log('🤖 Nas Generated Message:', message);
-
-    // Send push
-    await sendPushToToken(user.expoPushToken, {
-      title: 'Message from Nas 🤖',
-      body: message,
-      data: { type: 'test_ai' }
-    });
 
     // Save as notification
     await Notification.create({

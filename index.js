@@ -21,10 +21,7 @@ const chatRoutes = require('./routes/chatRoutes');
 const { initializeWhatsApp } = require('./services/whatsappService');
 const { generalLimiter } = require('./middleware/rateLimit');
 const { setSocketServerInstance } = require('./services/socketService');
-const notificationService = require('./services/notificationService');
-const periodicNotificationService = require('./services/periodicNotificationService');
 const { hardDeleteUserById } = require('./services/userCleanupService');
-const { sendNotificationToUser } = require('./services/pushService');
 const User = require('./models/User');
 
 const app = express();
@@ -121,14 +118,6 @@ io.on('connection', (socket) => {
         fromUser: sender.userInfo
       });
 
-      // Send push notification
-      await sendNotificationToUser(targetUserId, {
-        title: 'New Chat Request 👥',
-        message: `${sender.userInfo.name} wants to chat with you`,
-        type: 'chat_request',
-        url: '/community',
-        metadata: { senderId: sender.userInfo._id }
-      });
     }
   });
 
@@ -229,27 +218,6 @@ io.on('connection', (socket) => {
       io.to(targetUserId).emit('unread-count-update', {
         fromUserId: senderId,
         unreadCount: unreadCount
-      });
-
-      // Send push notification
-      const sender = onlineUsers.get(senderId);
-      const senderName = sender ? sender.userInfo.name : 'User';
-
-      let notificationBody = text;
-      if (type === 'audio') {
-        notificationBody = '🎤 Sent a voice message';
-      } else if (type === 'image') {
-        notificationBody = '📷 Sent an image';
-      } else {
-        notificationBody = text.length > 50 ? text.substring(0, 50) + '...' : text;
-      }
-
-      await sendNotificationToUser(targetUserId, {
-        title: `New message from ${senderName}`,
-        message: notificationBody,
-        type: 'chat_message',
-        url: `/community/chat/${senderId}?name=${encodeURIComponent(senderName)}`,
-        metadata: { senderId, messageId: message._id }
       });
 
       // Acknowledge to sender (optional, but good for UI updates if we want to confirm sent)
@@ -390,9 +358,6 @@ const startServer = async () => {
         }
       }, purgeIntervalMs);
 
-      // Start periodic push notifications (every 1 hour)
-      console.log('🔔 Starting periodic push notification service...');
-      periodicNotificationService.start();
 
       // Initialize WhatsApp
       initializeWhatsApp();
@@ -408,9 +373,6 @@ startServer();
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n👋 Shutting down gracefully...');
-
-  // Stop periodic notifications
-  periodicNotificationService.stop();
 
   const mongoose = require('mongoose');
   await mongoose.connection.close();
