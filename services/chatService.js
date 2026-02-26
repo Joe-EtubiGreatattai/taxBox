@@ -1,16 +1,14 @@
-const OpenAI = require('openai');
-
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+let model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
 
 /**
- * Generate a response from Eunice (AI tax assistant)
+ * Generate a response from Nas (AI tax assistant)
  * @param {string} userMessage - The user's message
  * @param {Array} chatHistory - Previous chat messages for context
  * @param {Object} userProfile - User profile information
  * @param {Object} userData - User's tax and receipt data
- * @returns {Promise<string>} - Eunice's response
+ * @returns {Promise<string>} - Nas's response
  */
 async function generateEuniceResponse(userMessage, chatHistory = [], userProfile = {}, userData = {}) {
     try {
@@ -39,11 +37,7 @@ async function generateEuniceResponse(userMessage, chatHistory = [], userProfile
             });
         }
 
-        // Build context from chat history
-        const messages = [
-            {
-                role: 'system',
-                content: `You are Eunice, a friendly and knowledgeable tax assistant for Nigerian taxpayers. You help users understand their tax obligations, answer questions about PAYE, VAT, and other tax matters in Nigeria. You are helpful, professional, and explain things in simple terms. 
+        const systemPrompt = `You are Nas, a friendly and knowledgeable tax assistant for Nigerian taxpayers. You help users understand their tax obligations, answer questions about PAYE, VAT, and other tax matters in Nigeria. You are helpful, professional, and explain things in simple terms.
 
 User Profile:
 - Name: ${userProfile.name || 'User'}
@@ -51,30 +45,31 @@ User Profile:
 - Profession: ${userProfile.profession || 'Not specified'}
 - Income Range: ${userProfile.incomeRange || 'Not specified'}${dataContext}
 
-When the user asks about their receipts, tax data, or spending, use the information provided above. Keep responses concise (2-3 sentences max unless explaining complex topics). Be warm and encouraging.`
-            },
-            // Add chat history
-            ...chatHistory.slice(-10).map(msg => ({
-                role: msg.sender === 'user' ? 'user' : 'assistant',
-                content: msg.text
-            })),
-            // Add current message
-            {
-                role: 'user',
-                content: userMessage
-            }
-        ];
+When the user asks about their receipts, tax data, or spending, use the information provided above. Keep responses concise (2-3 sentences max unless explaining complex topics). Be warm and encouraging.`;
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: messages,
-            max_tokens: 200,
-            temperature: 0.7,
+        const historyText = chatHistory
+            .slice(-10)
+            .map(msg => `${msg.sender === 'user' ? 'User' : 'Assistant'}: ${msg.text}`)
+            .join('\n');
+
+        const result = await model.generateContent({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `${systemPrompt}\n\n${historyText}\n\nUser: ${userMessage}` }
+                    ]
+                }
+            ],
+            generationConfig: {
+                maxOutputTokens: 200,
+                temperature: 0.7
+            }
         });
 
-        return response.choices[0].message.content.trim();
+        return result.response.text().trim();
     } catch (error) {
-        console.error('Error generating Eunice response:', error);
+        console.error('Error generating Nas response:', error);
 
         // Fallback responses if OpenAI fails
         const fallbackResponses = [

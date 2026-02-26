@@ -338,15 +338,15 @@ const sendTestAiNotification = async (req, res) => {
     }
 
     // Generate AI message
-    const prompt = `Hey Eunice! Send me a short, fun test notification to see if my push notifications are working. Keep it under 15 words.`;
+    const prompt = `Hey Nas! Send me a short, fun test notification to see if my push notifications are working. Keep it under 15 words.`;
     const aiResponse = await chatWithMercy(prompt, []);
     const message = aiResponse.content;
 
-    console.log('🤖 Eunice Generated Message:', message);
+    console.log('🤖 Nas Generated Message:', message);
 
     // Send push
     await sendPushToToken(user.expoPushToken, {
-      title: 'Message from Eunice 🤖',
+      title: 'Message from Nas 🤖',
       body: message,
       data: { type: 'test_ai' }
     });
@@ -355,7 +355,7 @@ const sendTestAiNotification = async (req, res) => {
     await Notification.create({
       user: userId,
       type: 'tax', // Using 'tax' type for now or 'info'
-      title: 'Message from Eunice',
+      title: 'Message from Nas',
       message: message,
       actionable: false
     });

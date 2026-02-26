@@ -10,42 +10,57 @@ const { admin } = require('../config/firebase');
 
 // Register new user
 const registerUser = async (req, res) => {
+  console.log('\n📥 [REGISTER] New registration request received');
+  console.log('[REGISTER] Request body:', JSON.stringify(req.body, null, 2));
+
   try {
     const { phone, tin, name, email, password, profession, taxType, incomeRange } = req.body;
 
+    // --- Required field check ---
     if (!phone || !tin || !name || !email || !password) {
+      const missing = ['phone', 'tin', 'name', 'email', 'password'].filter(f => !req.body[f]);
+      console.warn('[REGISTER] ❌ Missing required fields:', missing);
       return res.status(400).json({
         success: false,
         message: 'All fields required: phone, tin, name, email, password'
       });
     }
+    console.log('[REGISTER] ✅ All required fields present');
 
-    // Validate password strength
+    // --- Password length ---
     if (password.length < 6) {
+      console.warn('[REGISTER] ❌ Password too short:', password.length, 'chars');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters long'
       });
     }
+    console.log('[REGISTER] ✅ Password length OK');
 
-    // Validate Nigerian phone number format
+    // --- Phone format ---
     const phoneRegex = /^(?:234|0)[789][01]\d{8}$/;
     if (!phoneRegex.test(phone)) {
+      console.warn('[REGISTER] ❌ Invalid phone format:', phone);
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid Nigerian phone number'
       });
     }
+    console.log('[REGISTER] ✅ Phone format OK:', phone);
 
-    // Validate email format
+    // --- Email format ---
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.warn('[REGISTER] ❌ Invalid email format:', email);
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid email address'
       });
     }
+    console.log('[REGISTER] ✅ Email format OK:', email);
 
+    // --- Duplicate check ---
+    console.log('[REGISTER] 🔍 Checking for existing user with phone/tin/email...');
     const existingUser = await User.findOne({
       $or: [{ phone }, { tin }, { email }]
     });
@@ -55,13 +70,15 @@ const registerUser = async (req, res) => {
       if (existingUser.phone === phone) field = 'phone number';
       else if (existingUser.tin === tin) field = 'TIN';
       else if (existingUser.email === email) field = 'email';
-
+      console.warn(`[REGISTER] ❌ Duplicate user found — conflict on: ${field}`);
       return res.status(400).json({
         success: false,
         message: `User with this ${field} already exists`
       });
     }
+    console.log('[REGISTER] ✅ No duplicate found, proceeding to create user');
 
+    // --- Create & save user ---
     const user = new User({
       phone,
       tin,
@@ -73,20 +90,27 @@ const registerUser = async (req, res) => {
       incomeRange
     });
 
+    console.log('[REGISTER] 💾 Saving new user to database...');
     await user.save();
+    console.log('[REGISTER] ✅ User saved. ID:', user._id.toString());
 
-    // Generate JWT token
+    // --- Generate JWT ---
+    console.log('[REGISTER] 🔑 Generating auth token...');
     const token = user.generateAuthToken();
+    console.log('[REGISTER] ✅ Token generated');
 
-    // Send welcome message via WhatsApp
+    // --- WhatsApp welcome ---
     try {
       const chatId = `${phone}@c.us`;
       const firstName = name.split(' ')[0];
-      await client.sendMessage(chatId, `Hey ${firstName}! 👋 Welcome to Tax Assistant!\n\nI'm Eunice, and I'm here to help you track your receipts and taxes easily.\n\nJust send me your receipt photos (you can add context by typing with the image), or type amounts like "5000 lunch at restaurant".\n\nType "help" anytime if you need me! 😊`);
+      console.log('[REGISTER] 📱 Sending WhatsApp welcome to:', chatId);
+      await client.sendMessage(chatId, `Hey ${firstName}! 👋 Welcome to Tax Assistant!\n\nI'm Nas, and I'm here to help you track your receipts and taxes easily.\n\nJust send me your receipt photos (you can add context by typing with the image), or type amounts like "5000 lunch at restaurant".\n\nType "help" anytime if you need me! 😊`);
+      console.log('[REGISTER] ✅ WhatsApp welcome sent');
     } catch (whatsappError) {
-      console.error('WhatsApp welcome message error:', whatsappError);
+      console.error('[REGISTER] ⚠️ WhatsApp welcome message failed (non-fatal):', whatsappError.message);
     }
 
+    console.log('[REGISTER] 🎉 Registration complete — sending 201 response');
     res.status(201).json({
       success: true,
       message: 'Registration successful! Check WhatsApp for a welcome message.',
@@ -103,13 +127,16 @@ const registerUser = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('[REGISTER] 💥 Unexpected error during registration:');
+    console.error('  Message:', error.message);
+    console.error('  Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Server error during registration'
     });
   }
 };
+
 
 // Login user with phone + password
 const loginUser = async (req, res) => {

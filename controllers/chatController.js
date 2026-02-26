@@ -2,7 +2,7 @@ const User = require('../models/User');
 const { generateEuniceResponse } = require('../services/chatService');
 
 /**
- * Send a chat message and get Eunice's response
+ * Send a chat message and get Nas's response
  */
 const sendMessage = async (req, res) => {
     try {
@@ -50,7 +50,7 @@ const sendMessage = async (req, res) => {
         const userMessage = user.chatMessages[user.chatMessages.length - 1];
         await user.save();
 
-        // Generate Eunice's response
+        // Generate Nas's response
         const userProfile = {
             name: user.name,
             taxType: user.taxType,
@@ -81,7 +81,7 @@ const sendMessage = async (req, res) => {
             userData
         );
 
-        // Add Eunice's response
+        // Add Nas's response
         user.chatMessages.push({
             text: euniceText,
             sender: 'eunice',
@@ -176,7 +176,7 @@ const markAsRead = async (req, res) => {
             });
         }
 
-        // Mark all Eunice's messages as read
+        // Mark all Nas's messages as read
         user.chatMessages.forEach(msg => {
             if (msg.sender === 'eunice') {
                 msg.read = true;
@@ -327,7 +327,7 @@ const editMessage = async (req, res) => {
             userData
         );
 
-        // Add Eunice's response
+        // Add Nas's response
         user.chatMessages.push({
             text: euniceText,
             sender: 'eunice',

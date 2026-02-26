@@ -143,7 +143,7 @@ client.on('message', async (message) => {
     const user = await User.findOne({ phone: userPhone });
 
     if (!user) {
-      message.reply(`Hey! I'm Eunice, your friendly tax assistant 😊
+      message.reply(`Hey! I'm Nas, your friendly tax assistant 😊
 
 To start tracking your receipts, you need to register first. Visit our API to register with your phone, TIN, name, and email.
 

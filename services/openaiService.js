@@ -1,14 +1,14 @@
-const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 // Use pdfjs-dist (ESM) via dynamic import to extract text from PDFs in a CommonJS backend.
 const pdfjsLibPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
 const NIGERIAN_TAX_RATES = require('../config/taxRates');
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const modelText = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+const modelVision = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
 
-console.log('🔧 OpenAI Service Initialized');
+console.log('🔧 Gemini AI Service Initialized');
 
 // Enhanced OpenAI AI with conversational tone
 async function analyzeReceiptWithOpenAI(imageBuffer = null, textContext = '', userName = '', userMessage = '') {
@@ -29,26 +29,27 @@ async function analyzeReceiptWithOpenAI(imageBuffer = null, textContext = '', us
             console.log('💬 Text-only mode (no image)');
             console.log('👤 First name extracted:', firstName);
 
-            const systemPrompt = `You are Eunice, a warm, friendly, and intelligent Nigerian tax assistant for Tax-e. You're chatting with ${firstName}.
+            const systemPrompt = `You are Nas, a warm, friendly, and intelligent Nigerian tax assistant for Tax-e. You're chatting with ${firstName}.
 
 Context: The New Nigeria Tax Law 2025 is now in effect. This changes the PAYE system, income tax bands, and allowable deductions. However, the specific rates and bands are currently being finalized. If asked about tax calculations, inform the user that the new 2025 PAYE system applies, but specific details on rates are pending.
 
-Respond naturally like a helpful friend. Always identify yourself as Eunice if asked. Keep it SHORT (1-2 sentences max). Be warm but not over the top. Use Nigerian expressions occasionally. Reference ${firstName} by name when it feels natural.`;
+Respond naturally like a helpful friend. Always identify yourself as Nas if asked. Keep it SHORT (1-2 sentences max). Be warm but not over the top. Use Nigerian expressions occasionally. Reference ${firstName} by name when it feels natural.`;
 
-            console.log('📝 Sending text-only request to OpenAI...');
-
-            const response = await openai.chat.completions.create({
-                model: "gpt-4o",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: textContext }
+            const response = await modelText.generateContent({
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [
+                            { text: `${systemPrompt}\n\n${textContext}` }
+                        ]
+                    }
                 ],
-                temperature: 0.8,
-                max_tokens: 500,
+                generationConfig: {
+                    temperature: 0.8,
+                    maxOutputTokens: 500
+                }
             });
-
-            console.log('✅ Text response received');
-            const result = response.choices[0].message.content;
+            const result = response.response.text();
             console.log('💡 AI Response:', result.substring(0, 100));
 
             return {
@@ -86,32 +87,23 @@ Return ONLY a JSON object:
 
 Nigerian context: Identify currency carefully. Look for ₦, NGN, Naira symbols. If no currency shown, assume NGN.`;
 
-        console.log('📤 Sending vision request to OpenAI...');
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: systemPrompt },
+        const response = await modelVision.generateContent({
+            contents: [
                 {
-                    role: "user",
-                    content: [
-                        { type: "text", text: "Analyze this receipt." },
-                        {
-                            type: "image_url",
-                            image_url: {
-                                "url": `data:image/jpeg;base64,${base64Image}`
-                            },
-                        },
-                    ],
-                },
+                    role: 'user',
+                    parts: [
+                        { text: systemPrompt },
+                        { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
+                    ]
+                }
             ],
-            temperature: 0.1,
-            max_tokens: 2000,
-            response_format: { type: "json_object" }
+            generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 2000,
+                responseMimeType: 'application/json'
+            }
         });
-
-        console.log('✅ Vision response received');
-        const aiText = response.choices[0].message.content;
+        const aiText = response.response.text();
         console.log('📄 AI raw text response:', aiText.substring(0, 200));
 
         try {
@@ -284,18 +276,20 @@ Return ONLY a JSON object with the shape:
 If there are no transactions in this PART, return {"transactions": []}.`;
 
         try {
-            console.log(`📤 OpenAI request for chunk ${i + 1}...`);
-            const response = await openai.chat.completions.create({
-                model: "gpt-4o",
-                messages: [
-                    { role: "system", content: prompt }
+            const response = await modelText.generateContent({
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [{ text: prompt }]
+                    }
                 ],
-                temperature: 0.1,
-                max_tokens: 4096,
-                response_format: { type: "json_object" }
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 4096,
+                    responseMimeType: 'application/json'
+                }
             });
-
-            const aiText = response.choices[0].message.content;
+            const aiText = response.response.text();
             const parsed = JSON.parse(aiText);
             const chunkTx = Array.isArray(parsed.transactions) ? parsed.transactions : [];
             console.log(`✅ Parsed ${chunkTx.length} transactions from chunk ${i + 1}`);
@@ -379,12 +373,12 @@ If there are no transactions in this PART, return {"transactions": []}.`;
     };
 }
 
-// Chat with Eunice
+// Chat with Nas
 async function chatWithMercy(userMessage, history = []) {
     console.log('💬 chatWithMercy called');
 
     try {
-        const systemPrompt = `You are Eunice, a warm, friendly, and intelligent Nigerian tax assistant for Tax-e.
+        const systemPrompt = `You are Nas, a warm, friendly, and intelligent Nigerian tax assistant for Tax-e.
     
 Context: The New Nigeria Tax Law 2025 is now in effect. This changes the PAYE system, income tax bands, and allowable deductions. However, the specific rates and bands are currently being finalized.
 
@@ -395,24 +389,27 @@ YOUR MISSION:
 4. Be warm, use occasional Nigerian expressions (like "o", "abeg", "no wahala"), but keep it professional.
 5. Keep responses concise (2-3 sentences max usually).`;
 
-        const messages = [
-            { role: "system", content: systemPrompt },
-            ...history.map(msg => ({ role: msg.role, content: msg.content })),
-            { role: "user", content: userMessage }
-        ];
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: messages,
-            temperature: 0.7,
-            max_tokens: 300,
+        const historyText = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
+        const response = await modelText.generateContent({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `${systemPrompt}\n\n${historyText}\n\nUser: ${userMessage}` }
+                    ]
+                }
+            ],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 300
+            }
         });
 
-        const reply = response.choices[0].message.content;
+        const reply = response.response.text();
         return { role: 'assistant', content: reply };
 
     } catch (error) {
-        console.error('❌ Eunice chat error:', error.message);
+        console.error('❌ Nas chat error:', error.message);
         return {
             role: 'assistant',
             content: "Eyah, network is somehow o. I couldn't hear you well. Please say that again?"
@@ -420,13 +417,13 @@ YOUR MISSION:
     }
 }
 
-// Chat with Eunice (Admin Mode)
+// Chat with Nas (Admin Mode)
 // Generate a personalized engagement prompt based on user stats
 async function generatePersonalizedEngagement(context) {
     console.log('📢 generatePersonalizedEngagement called for:', context.name);
 
     try {
-        const systemPrompt = `You are Eunice, a personal Nigerian tax assistant. 
+        const systemPrompt = `You are Nas, a personal Nigerian tax assistant. 
 Context: 
 - User: ${context.name}
 - Current Month Spend: ₦${context.currentMonthSpent.toLocaleString()}
@@ -443,7 +440,7 @@ Guidelines:
 4. If they haven't uploaded in a while (>3 days), playfully nag them.
 5. If they have high spend, comment on it and offer to analyze it.
 6. Use Nigerian flair occasionally ("Abeg", "Oga", "Madam", "Wetin dey").
-7. Goal: Get them to open the app and chat with Eunice.
+7. Goal: Get them to open the app and chat with Nas.
 
 Examples:
 - "Oga John, 5 days since your last receipt? Come chat, let's sort your records out!"
@@ -451,17 +448,19 @@ Examples:
 - "I've been reviewing your expenses. Come chat, I have some insights for you!"
 - "Tax Reminder: You owe ₦15k so far. Come chat if you need advice on deductions."`;
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: "Generate notification." }
+        const response = await modelText.generateContent({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [{ text: `${systemPrompt}\n\nGenerate notification.` }]
+                }
             ],
-            temperature: 0.8,
-            max_tokens: 100,
+            generationConfig: {
+                temperature: 0.8,
+                maxOutputTokens: 100
+            }
         });
-
-        const reply = response.choices[0].message.content;
+        const reply = response.response.text();
         // Clean up quotes if present
         const cleanedReply = reply.replace(/^["']|["']$/g, '');
 
@@ -484,7 +483,7 @@ async function chatWithMercyAdmin(userMessage, history = [], adminContext = {}) 
     console.log('💬 chatWithMercyAdmin called');
 
     try {
-        const systemPrompt = `You are Eunice, the intelligent Admin Assistant for the Tax-e platform.
+        const systemPrompt = `You are Nas, the intelligent Admin Assistant for the Tax-e platform.
     
 Context:
 - Total Users: ${adminContext.totalUsers || 'Unknown'}
@@ -500,24 +499,26 @@ YOUR MISSION:
 4. Be professional, efficient, but maintain a slight warm Nigerian charm (e.g., "All systems operational, Oga/Madam").
 5. Keep responses concise.`;
 
-        const messages = [
-            { role: "system", content: systemPrompt },
-            ...history.map(msg => ({ role: msg.role, content: msg.content })),
-            { role: "user", content: userMessage }
-        ];
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: messages,
-            temperature: 0.5,
-            max_tokens: 300,
+        const historyText = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
+        const response = await model.generateContent({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `${systemPrompt}\n\n${historyText}\n\nUser: ${userMessage}` }
+                    ]
+                }
+            ],
+            generationConfig: {
+                temperature: 0.5,
+                maxOutputTokens: 300
+            }
         });
-
-        const reply = response.choices[0].message.content;
+        const reply = response.response.text();
         return { role: 'assistant', content: reply };
 
     } catch (error) {
-        console.error('❌ Eunice admin chat error:', error.message);
+        console.error('❌ Nas admin chat error:', error.message);
         return {
             role: 'assistant',
             content: "System error. I couldn't process that request."

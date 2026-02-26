@@ -1,13 +1,75 @@
 const nodemailer = require('nodemailer');
 
-// Configure email transporter
+function getSmtpPassword() {
+    const raw = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS || '';
+    const m = raw.match(/^"(.*)"$/);
+    return m ? m[1] : raw;
+}
+
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    secure: (process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : false) || parseInt(process.env.SMTP_PORT || '0', 10) === 465,
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
+        user: process.env.SMTP_USER || process.env.SMTP_EMAIL || process.env.EMAIL_USER,
+        pass: getSmtpPassword()
+    },
+    logger: true,
+    debug: true
 });
+
+function maskEmail(email) {
+    if (!email) return '';
+    const parts = String(email).split('@');
+    if (parts.length !== 2) return '***';
+    const local = parts[0];
+    const domain = parts[1];
+    const maskedLocal = local.length <= 2 ? local : `${local.slice(0, 2)}***`;
+    return `${maskedLocal}@${domain}`;
+}
+
+async function sendEmail(to, subject, html) {
+    const fromName = process.env.FROM_NAME || 'Tax-e Team';
+    const fromEmail = process.env.FROM_EMAIL || process.env.SMTP_EMAIL || process.env.EMAIL_USER;
+    console.log('SMTP sending init:', {
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT,
+        secure: (process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : false) || parseInt(process.env.SMTP_PORT || '0', 10) === 465,
+        user: maskEmail(process.env.SMTP_USER || process.env.SMTP_EMAIL || process.env.EMAIL_USER),
+        from: `"${fromName}" <${maskEmail(fromEmail)}>`
+    });
+    const mailOptions = {
+        from: `"${fromName}" <${fromEmail}>`,
+        to,
+        subject,
+        html
+    };
+    try {
+        try {
+            const verifyRes = await transporter.verify();
+            console.log('SMTP verify:', verifyRes === true ? 'ok' : verifyRes);
+        } catch (verErr) {
+            console.log('SMTP verify failed:', verErr && (verErr.message || verErr));
+        }
+        console.log('SMTP sending start:', { to: maskEmail(to), subject });
+        const info = await transporter.sendMail(mailOptions);
+        console.log('SMTP sending done:', {
+            messageId: info.messageId,
+            response: info.response,
+            accepted: info.accepted,
+            rejected: info.rejected
+        });
+        return { success: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected };
+    } catch (err) {
+        console.log('SMTP sending error:', {
+            code: err && err.code,
+            responseCode: err && err.responseCode,
+            command: err && err.command,
+            message: err && err.message
+        });
+        return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+}
 
 /**
  * Send confirmation email to users who join the waitlist
@@ -16,11 +78,7 @@ const transporter = nodemailer.createTransport({
  */
 const sendWaitlistConfirmationEmail = async (name, email) => {
     try {
-        const mailOptions = {
-            from: `"Tax-e Team" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: '🎉 Welcome to Tax-e Waitlist!',
-            html: `
+        const html = `
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -107,12 +165,15 @@ const sendWaitlistConfirmationEmail = async (name, email) => {
                     </div>
                 </body>
                 </html>
-            `
-        };
+            `;
 
-        const info = await transporter.sendMail(mailOptions);
-        console.log('Waitlist confirmation email sent:', info.messageId);
-        return { success: true, messageId: info.messageId };
+        const result = await sendEmail(
+            email,
+            '🎉 Welcome to Tax-e Waitlist!',
+            html
+        );
+        console.log('Waitlist confirmation email sent:', result.messageId);
+        return result;
     } catch (error) {
         console.error('Error sending waitlist confirmation email:', error);
         return { success: false, error: error.message };
@@ -120,5 +181,6 @@ const sendWaitlistConfirmationEmail = async (name, email) => {
 };
 
 module.exports = {
-    sendWaitlistConfirmationEmail
+    sendWaitlistConfirmationEmail,
+    sendEmail
 };
