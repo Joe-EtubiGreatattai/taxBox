@@ -9,14 +9,18 @@ const firebaseConfig = {
 };
 
 if (!admin.apps.length) {
-  try {
-    app = admin.initializeApp({
-      credential: admin.credential.cert(firebaseConfig),
-    });
-    console.log('✅ Firebase Admin initialized with environment variables');
-  } catch (error) {
-    console.error('❌ Firebase Admin initialization failed:', error.message);
-    throw error;
+  if (!firebaseConfig.projectId || !firebaseConfig.privateKey || !firebaseConfig.clientEmail) {
+    console.error('⚠️ Firebase Admin environment variables are missing. Google Auth will not work.');
+  } else {
+    try {
+      app = admin.initializeApp({
+        credential: admin.credential.cert(firebaseConfig),
+      });
+      console.log('✅ Firebase Admin initialized with environment variables');
+    } catch (error) {
+      console.error('❌ Firebase Admin initialization failed:', error.message);
+      // Don't throw to allow the server to start for other features
+    }
   }
 } else {
   app = admin.app();
