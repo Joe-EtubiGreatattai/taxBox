@@ -476,39 +476,6 @@ const getUserByPhone = async (req, res) => {
   }
 };
 
-// Search users by name or email
-const searchUsers = async (req, res) => {
-  try {
-    const { query } = req.query;
-    if (!query) {
-      return res.status(400).json({ success: false, message: 'Search query is required' });
-    }
-
-    const users = await User.find({
-      $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } }
-      ],
-      _id: { $ne: req.user?._id } // Exclude current user if possible
-    })
-      .select('name email profilePhotoUrl')
-      .limit(10);
-
-    res.json({
-      success: true,
-      users: users.map(u => ({
-        _id: u._id,
-        name: u.name,
-        email: u.email,
-        photo: u.profilePhotoUrl
-      }))
-    });
-  } catch (error) {
-    console.error('Search users error:', error);
-    res.status(500).json({ success: false, message: 'Failed to search users' });
-  }
-};
-
 // Get user receipts (authenticated - own data)
 const getUserReceipts = async (req, res) => {
   try {
@@ -1285,6 +1252,53 @@ const getUserById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch user profile'
+    });
+  }
+};
+
+// Search users by name, phone, or TIN (authenticated)
+const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query is required'
+      });
+    }
+
+    const searchRegex = new RegExp(query, 'i');
+
+    // Search in name, phone, or TIN
+    const users = await User.find({
+      isActive: true,
+      $or: [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { tin: searchRegex }
+      ]
+    })
+      .select('name email phone profession profilePhotoUrl tin createdAt')
+      .limit(20);
+
+    res.json({
+      success: true,
+      users: users.map(user => ({
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        profession: user.profession,
+        photo: user.profilePhotoUrl,
+        joinedAt: user.createdAt,
+        tin: user.tin
+      }))
+    });
+  } catch (error) {
+    console.error('Search users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search users'
     });
   }
 };

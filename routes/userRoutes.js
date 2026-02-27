@@ -20,7 +20,8 @@ const {
   forgotPassword,
   registerPushToken,
   deleteAccount,
-  getUserById
+  getUserById,
+  searchUsers
 } = require('../controllers/userController');
 
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
