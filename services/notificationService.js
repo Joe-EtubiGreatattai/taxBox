@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { getUserTaxStatus } = require('./userService');
 const taxNewsService = require('./taxNewsService');
 const { emitToUser } = require('./socketService');
+const { sendPushNotification } = require('./expoPushService');
 
 class NotificationService {
   // Generate and save notifications for a user
@@ -38,6 +39,17 @@ class NotificationService {
       // Save notifications
       if (notifications.length > 0) {
         await Notification.create(notifications);
+
+        // Send push notification if token exists
+        if (user.expoPushToken) {
+          const latest = notifications[notifications.length - 1];
+          sendPushNotification(
+            user.expoPushToken,
+            latest.title,
+            latest.message,
+            { type: latest.type }
+          ).catch(err => console.error('Push notification failed:', err));
+        }
       }
 
       return notifications;
@@ -109,6 +121,16 @@ class NotificationService {
               sender: 'eunice',
               timestamp: new Date()
             });
+
+            // Send push notification if token exists
+            if (userObj.expoPushToken) {
+              sendPushNotification(
+                userObj.expoPushToken,
+                top.title || 'Latest tax news',
+                top.snippet || top.title || 'New tax news update',
+                { type: 'tax', url: top.link }
+              ).catch(err => console.error('Push notification failed:', err));
+            }
           }
         } catch (err) {
           console.error(`Error syncing tax news to user ${u._id}:`, err);

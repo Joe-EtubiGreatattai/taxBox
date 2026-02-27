@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { emitToUser } = require('../services/socketService');
 const { admin } = require('../config/firebase');
+const { uploadBuffer, deleteImage } = require('../services/cloudinaryService');
 
 // Register new user
 const registerUser = async (req, res) => {
@@ -998,36 +999,41 @@ const uploadProfilePhoto = async (req, res) => {
       });
     }
 
-    // Ensure uploads/profile-photos directory exists
-    const uploadsRoot = path.join(__dirname, '..', 'uploads');
-    const photosDir = path.join(uploadsRoot, 'profile-photos');
-    if (!fs.existsSync(photosDir)) {
-      fs.mkdirSync(photosDir, { recursive: true });
+    // Upload to Cloudinary
+    console.log('☁️ Uploading profile photo to Cloudinary...');
+    const folder = 'profile-photos';
+    const publicId = `user-${user._id}-${Date.now()}`;
+
+    const result = await uploadBuffer(req.file.buffer, folder, publicId);
+    console.log('✅ Cloudinary upload successful:', result.secure_url);
+
+    // Delete previous profile photo if it was on Cloudinary
+    if (user.profilePhotoUrl && user.profilePhotoUrl.includes('cloudinary.com')) {
+      try {
+        // Extract publicId from URL: https://res.cloudinary.com/cloud_name/image/upload/v12345/folder/publicId.jpg
+        const urlParts = user.profilePhotoUrl.split('/');
+        const fileWithExt = urlParts[urlParts.length - 1];
+        const publicIdWithFolder = `${folder}/${fileWithExt.split('.')[0]}`;
+
+        console.log('🗑️ Deleting old Cloudinary photo:', publicIdWithFolder);
+        await deleteImage(publicIdWithFolder);
+      } catch (cleanupError) {
+        console.warn('Could not delete old Cloudinary photo:', cleanupError.message);
+      }
     }
-
-    const ext = path.extname(req.file.originalname) || '.jpg';
-    const fileName = `user-${user._id}-${Date.now()}${ext}`;
-    const filePath = path.join(photosDir, fileName);
-
-    // Write the buffer from multer memory storage to disk
-    fs.writeFileSync(filePath, req.file.buffer);
-
-    // Build relative URL used by frontend (served from /uploads)
-    const relativeUrl = `/uploads/profile-photos/${fileName}`;
-
-    // Delete previous profile photo if present and stored under /uploads
-    if (user.profilePhotoUrl && user.profilePhotoUrl.startsWith('/uploads/')) {
+    // Also cleanup local if migrating
+    else if (user.profilePhotoUrl && user.profilePhotoUrl.startsWith('/uploads/')) {
       try {
         const oldPath = path.join(__dirname, '..', user.profilePhotoUrl.replace('/uploads', 'uploads'));
         if (fs.existsSync(oldPath)) {
           fs.unlinkSync(oldPath);
         }
       } catch (cleanupError) {
-        console.warn('Could not delete old profile photo:', cleanupError.message);
+        console.warn('Could not delete old local profile photo:', cleanupError.message);
       }
     }
 
-    user.profilePhotoUrl = relativeUrl;
+    user.profilePhotoUrl = result.secure_url;
     await user.save();
 
     const safeUser = await User.findById(user._id).select('-password');
@@ -1040,6 +1046,7 @@ const uploadProfilePhoto = async (req, res) => {
       success: true,
       message: 'Profile photo updated successfully',
       user: safeUser,
+      photoUrl: result.secure_url
     });
   } catch (error) {
     console.error('Upload profile photo error:', error);

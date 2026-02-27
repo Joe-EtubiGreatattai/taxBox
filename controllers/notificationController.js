@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { getUserTaxStatus } = require('../services/userService');
 const { emitToUser } = require('../services/socketService');
 const { chatWithMercy } = require('../services/openaiService');
+const { sendPushNotification } = require('../services/expoPushService');
 
 // Get all notifications for user
 const getNotifications = async (req, res) => {
@@ -336,6 +337,18 @@ const generateSystemNotifications = async (req, res) => {
     if (notifications.length > 0) {
       savedNotifications = await Notification.create(notifications);
       emitToUser(userId, 'notifications:changed', {});
+
+      // Send push notification if user has a token
+      if (user.expoPushToken) {
+        // Send the most recent or important notification as a push
+        const latest = savedNotifications[savedNotifications.length - 1];
+        sendPushNotification(
+          user.expoPushToken,
+          latest.title,
+          latest.message,
+          { notificationId: latest.id, type: latest.type }
+        ).catch(err => console.error('Push notification failed:', err));
+      }
     }
 
     res.json({
@@ -395,6 +408,16 @@ const sendTestAiNotification = async (req, res) => {
       sender: 'eunice',
       timestamp: new Date()
     });
+
+    // Send push notification if token exists
+    if (user.expoPushToken) {
+      sendPushNotification(
+        user.expoPushToken,
+        'Message from Nas',
+        message,
+        { type: 'tax' }
+      ).catch(err => console.error('Push notification failed:', err));
+    }
 
     res.json({
       success: true,

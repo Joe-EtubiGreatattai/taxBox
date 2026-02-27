@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { emitToUser } = require('../services/socketService');
 const { calculateFromMonthly } = require('../services/salaryTaxCalculator');
 const User = require('../models/User');
+const { uploadBuffer } = require('../services/cloudinaryService');
 
 // Add new receipt (from scan or manual entry)
 const addReceipt = async (req, res) => {
@@ -189,6 +190,17 @@ const processReceiptImage = async (req, res) => {
 
     console.log('🧾 Preparing receipt response...');
 
+    // Upload to Cloudinary for permanent storage
+    console.log('☁️ Uploading receipt image to Cloudinary...');
+    let cloudinaryUrl = null;
+    try {
+      const uploadResult = await uploadBuffer(req.file.buffer, 'receipts', `receipt-${user._id}-${Date.now()}`);
+      cloudinaryUrl = uploadResult.secure_url;
+      console.log('✅ Receipt uploaded to Cloudinary:', cloudinaryUrl);
+    } catch (uploadError) {
+      console.warn('⚠️ Cloudinary upload failed, but AI processing will continue:', uploadError.message);
+    }
+
     const receiptData = {
       merchantName: analysisResult.merchant,
       amount: analysisResult.amount.toString(),
@@ -197,7 +209,8 @@ const processReceiptImage = async (req, res) => {
       receiptNumber: `RCP${Date.now()}`,
       description: analysisResult.description,
       category: analysisResult.category,
-      taxDeductible: analysisResult.taxDeductible
+      taxDeductible: analysisResult.taxDeductible,
+      imageUri: cloudinaryUrl // Return the cloud URL to the frontend
     };
 
     console.log('📦 Receipt data prepared:', receiptData);
