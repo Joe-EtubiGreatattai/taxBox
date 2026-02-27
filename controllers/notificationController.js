@@ -34,6 +34,38 @@ const getNotifications = async (req, res) => {
   }
 };
 
+// Get single notification detail
+const getNotificationDetail = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    const userId = req.user._id;
+
+    const notification = await Notification.findOne({
+      _id: notificationId,
+      user: userId
+    });
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      notification
+    });
+
+  } catch (error) {
+    console.error('Get notification detail error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching notification details'
+    });
+  }
+};
+
 // Mark notification as read
 const markAsRead = async (req, res) => {
   try {
@@ -180,7 +212,7 @@ const generateSystemNotifications = async (req, res) => {
           type: 'payment',
           'metadata.monthName': month.monthName,
           'metadata.year': month.year, // Assuming prompt includes year or we just check monthName for now
-          created_at: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Don't spam daily
+          createdAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Don't spam daily
         });
 
         if (!exists) {
@@ -207,7 +239,7 @@ const generateSystemNotifications = async (req, res) => {
         user: userId,
         type: 'reminder',
         title: 'Monthly Tax Summary',
-        created_at: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        createdAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
       });
 
       if (!exists) {
@@ -255,7 +287,7 @@ const generateSystemNotifications = async (req, res) => {
         const exists = await Notification.findOne({
           user: userId,
           title: 'Time to Track Receipts',
-          created_at: { $gt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } // Every 3 days
+          createdAt: { $gt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } // Every 3 days
         });
 
         if (!exists) {
@@ -278,7 +310,7 @@ const generateSystemNotifications = async (req, res) => {
       user: userId,
       type: 'tax',
       title: 'Tax Tip',
-      created_at: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      createdAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     });
 
     if (!tipExists) {
@@ -381,6 +413,7 @@ const sendTestAiNotification = async (req, res) => {
 
 module.exports = {
   getNotifications,
+  getNotificationDetail,
   markAsRead,
   markAllAsRead,
   deleteNotification,

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getNotifications,
+  getNotificationDetail,
   markAsRead,
   markAllAsRead,
   deleteNotification,
@@ -21,6 +22,9 @@ router.get('/', generalLimiter, getNotifications);
 
 // Get notification stats
 router.get('/stats', generalLimiter, getNotificationStats);
+
+// Get single notification detail
+router.get('/:notificationId', generalLimiter, getNotificationDetail);
 
 // Generate system notifications based on user data
 router.post('/generate-system', generalLimiter, generateSystemNotifications);
