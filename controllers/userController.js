@@ -580,7 +580,12 @@ const generateUserReport = async (req, res) => {
 // Get user payments (authenticated)
 const getUserPayments = async (req, res) => {
   try {
-    const user = req.user;
+    // Refresh user data from DB to ensure we have the latest taxRecords and monthlyPayments
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     const taxStatus = await getUserTaxStatus(user);
 
     // Get existing records
@@ -619,6 +624,13 @@ const getUserPayments = async (req, res) => {
       })),
       ...calculatedUnpaid
     ].sort((a, b) => b.month.localeCompare(a.month));
+
+    console.log(`📊 Payments for user ${user._id}:`, {
+      existingCount: existingPayments.length,
+      calculatedCount: calculatedUnpaid.length,
+      totalCount: allPayments.length,
+      unpaidMonthsFromStatus: taxStatus.unpaidMonths?.map(m => m.month)
+    });
 
     res.json({
       success: true,
