@@ -476,6 +476,39 @@ const getUserByPhone = async (req, res) => {
   }
 };
 
+// Search users by name or email
+const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(400).json({ success: false, message: 'Search query is required' });
+    }
+
+    const users = await User.find({
+      $or: [
+        { name: { $regex: query, $options: 'i' } },
+        { email: { $regex: query, $options: 'i' } }
+      ],
+      _id: { $ne: req.user?._id } // Exclude current user if possible
+    })
+      .select('name email profilePhotoUrl')
+      .limit(10);
+
+    res.json({
+      success: true,
+      users: users.map(u => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        photo: u.profilePhotoUrl
+      }))
+    });
+  } catch (error) {
+    console.error('Search users error:', error);
+    res.status(500).json({ success: false, message: 'Failed to search users' });
+  }
+};
+
 // Get user receipts (authenticated - own data)
 const getUserReceipts = async (req, res) => {
   try {
@@ -548,10 +581,32 @@ const generateUserReport = async (req, res) => {
 const getUserPayments = async (req, res) => {
   try {
     const user = req.user;
+    const taxStatus = await getUserTaxStatus(user);
 
-    res.json({
-      success: true,
-      payments: user.monthlyPayments?.map(payment => ({
+    // Get existing records
+    const existingPayments = user.monthlyPayments || [];
+
+    // Create a set of months we already have records for
+    const existingMonthKeys = new Set(existingPayments.map(p => p.month));
+
+    // Convert status-calculated unpaid months to payment-like objects for the UI
+    const calculatedUnpaid = (taxStatus.unpaidMonths || [])
+      .filter(m => !existingMonthKeys.has(m.month))
+      .map(m => ({
+        month: m.month,
+        year: parseInt(m.month.split('-')[0]),
+        totalTax: m.taxAmount,
+        paidAmount: 0,
+        currency: 'NGN',
+        isPaid: false,
+        paidDate: null,
+        receiptsCount: m.receiptsCount,
+        totalSpent: 0, // userService doesn't provide this per month in unpaidMonths list currently, but we can live with 0 or calculate it
+        isCalculated: true // Flag to indicate this is a "vritual" record
+      }));
+
+    const allPayments = [
+      ...existingPayments.map(payment => ({
         month: payment.month,
         year: payment.year,
         totalTax: payment.totalTax,
@@ -561,7 +616,13 @@ const getUserPayments = async (req, res) => {
         paidDate: payment.paidDate,
         receiptsCount: payment.receiptsCount,
         totalSpent: payment.totalSpent
-      })) || []
+      })),
+      ...calculatedUnpaid
+    ].sort((a, b) => b.month.localeCompare(a.month));
+
+    res.json({
+      success: true,
+      payments: allPayments
     });
 
   } catch (error) {
@@ -695,7 +756,7 @@ const markPaymentAsPaid = async (req, res) => {
 
 // Send tax report summary to user's WhatsApp
 const sendReportToWhatsApp = async (req, res) => {
-  console.log('📱 WhatsApp Report Request Received:', {
+  console.log('📱 Tax Report Request Received:', {
     timestamp: new Date().toISOString(),
     userId: req.user?._id,
     userPhone: req.user?.phone
@@ -707,135 +768,88 @@ const sendReportToWhatsApp = async (req, res) => {
     const user = req.user;
 
     if (!user) {
-      console.log('❌ WhatsApp Report - User not authenticated');
+      console.log('❌ Tax Report - User not authenticated');
       return res.status(401).json({
         success: false,
         message: 'User not authenticated'
       });
     }
 
-    console.log('👤 WhatsApp Report - User found:', {
-      userId: user._id,
-      phone: user.phone,
-      name: user.name,
-      taxRecordsCount: user.taxRecords?.length || 0
+    // 1. Generate tax status data for in-app notification
+    console.log('📊 Tax Report - Generating tax status data...');
+    const taxStatus = await getUserTaxStatus(user);
+
+    // 2. Create in-app notification first
+    console.log('🔔 Tax Report - Creating in-app notification...');
+    await notificationService.createNotification({
+      user: user._id,
+      type: 'tax',
+      title: 'Tax Report Generated',
+      message: 'Your detailed tax report is ready. Click to view the full breakdown and manage payments.',
+      actionable: true,
+      metadata: taxStatus
     });
 
-    if (!client) {
-      console.log('❌ WhatsApp Report - WhatsApp client not initialized');
-      return res.status(500).json({
-        success: false,
-        message: 'WhatsApp client not initialized'
-      });
-    }
+    // Notify client via socket immediately
+    emitToUser(user._id, 'notifications:changed', {});
+    console.log('✅ Tax Report - In-app notification created and socket emitted');
 
-    console.log('✅ WhatsApp Report - WhatsApp client is available');
+    // 3. WhatsApp logic (Optional/Fallback)
+    if (user.taxRecords && user.taxRecords.length > 0) {
+      if (client && client.info) { // Check if client is initialized AND ready
+        try {
+          console.log('📄 Tax Report - Generating PDF report for WhatsApp...');
+          pdfPath = await generateTaxReport(user, user.taxRecords);
 
-    if (!user.taxRecords || user.taxRecords.length === 0) {
-      console.log('❌ WhatsApp Report - No tax records found for user:', {
-        userId: user._id,
-        taxRecordsCount: 0
-      });
-      return res.status(400).json({
-        success: false,
-        message: 'No tax records found'
-      });
-    }
+          const chatId = `${user.phone}@c.us`;
+          const firstName = user.name ? user.name.split(' ')[0] : 'there';
+          const pdfBuffer = fs.readFileSync(pdfPath);
+          const pdfBase64 = pdfBuffer.toString('base64');
+          const filename = `tax-report-${user.tin}-${new Date().toISOString().split('T')[0]}.pdf`;
 
-    console.log('📊 WhatsApp Report - Processing tax records:', {
-      totalRecords: user.taxRecords.length
-    });
+          const { MessageMedia } = require('whatsapp-web.js');
+          const media = new MessageMedia('application/pdf', pdfBase64, filename);
 
-    // Generate PDF report
-    console.log('📄 WhatsApp Report - Generating PDF report...');
-    pdfPath = await generateTaxReport(user, user.taxRecords);
+          await client.sendMessage(chatId, media, {
+            caption: `Here is your tax report ${firstName}! 📊`
+          });
+          console.log('✅ Tax Report - PDF sent to WhatsApp');
 
-    console.log('✅ WhatsApp Report - PDF generated:', {
-      pdfPath: pdfPath,
-      fileExists: fs.existsSync(pdfPath)
-    });
+          // Sync to app chat as well
+          const summaryMsg = `I've generated your tax report for ${new Date().toLocaleString('en-NG', { month: 'long', year: 'numeric' })}. You can also view it in your notifications.`;
+          user.chatMessages.push({
+            text: summaryMsg,
+            sender: 'eunice',
+            timestamp: new Date(),
+            read: false
+          });
+          await user.save();
+          emitToUser(user._id, 'chat:received', { text: summaryMsg, sender: 'eunice' });
 
-    const chatId = `${user.phone}@c.us`;
-    const firstName = user.name ? user.name.split(' ')[0] : 'there';
-
-    console.log('💬 WhatsApp Report - Preparing to send PDF to:', chatId);
-
-    // Send PDF document only
-    console.log('📎 WhatsApp Report - Sending PDF document...');
-
-    // Read the PDF file
-    const pdfBuffer = fs.readFileSync(pdfPath);
-    const pdfBase64 = pdfBuffer.toString('base64');
-
-    // Get filename with user info
-    const filename = `tax-report-${user.tin}-${new Date().toISOString().split('T')[0]}.pdf`;
-
-    console.log('📁 WhatsApp Report - PDF file details:', {
-      filename: filename,
-      fileSize: pdfBuffer.length,
-      base64Length: pdfBase64.length
-    });
-
-    // Import MessageMedia here to avoid scope issues
-    const { MessageMedia } = require('whatsapp-web.js');
-
-    // Send as document
-    const media = new MessageMedia(
-      'application/pdf',
-      pdfBase64,
-      filename
-    );
-
-    // Send simple message with PDF
-    await client.sendMessage(chatId, media, {
-      caption: `Here is your tax report ${firstName}! 📊`
-    });
-
-    console.log('✅ WhatsApp Report - PDF document sent successfully');
-
-    // Clean up the temporary PDF file
-    try {
-      if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
-        console.log('🧹 WhatsApp Report - Temporary PDF file cleaned up');
+        } catch (waError) {
+          console.warn('⚠️ Tax Report - WhatsApp delivery failed (but in-app succeeded):', waError.message);
+        } finally {
+          // Clean up the temporary PDF file
+          if (pdfPath && fs.existsSync(pdfPath)) {
+            try { fs.unlinkSync(pdfPath); } catch (e) { }
+          }
+        }
+      } else {
+        console.log('ℹ️ Tax Report - WhatsApp client not ready, skipping WA delivery');
       }
-    } catch (cleanupError) {
-      console.warn('⚠️ WhatsApp Report - Could not clean up temporary file:', cleanupError.message);
     }
 
-    console.log('🎉 WhatsApp Report - Complete success:', {
-      chatId: chatId,
-      timestamp: new Date().toISOString()
-    });
-
-    // FIX: Return proper response
+    // Always return success if in-app notification was created
     return res.json({
       success: true,
-      message: 'Tax report PDF sent to WhatsApp successfully'
+      message: 'Tax report generated! Check your in-app notifications for the full breakdown.'
     });
 
   } catch (error) {
-    console.error('❌ WhatsApp Report - Error sending report:', {
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?._id,
-      timestamp: new Date().toISOString()
-    });
-
-    // Clean up PDF file in case of error
-    try {
-      if (pdfPath && fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
-        console.log('🧹 WhatsApp Report - Cleaned up temporary PDF after error');
-      }
-    } catch (cleanupError) {
-      console.warn('⚠️ WhatsApp Report - Could not clean up temporary file after error:', cleanupError.message);
-    }
-
-    // FIX: Return proper error response
+    console.error('❌ Tax Report - Error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to send report to WhatsApp: ' + error.message
+      message: 'Failed to generate tax report: ' + error.message
     });
   }
 };
@@ -1283,4 +1297,5 @@ module.exports = {
   forgotPassword,
   registerPushToken,
   deleteAccount,
+  searchUsers,
 };

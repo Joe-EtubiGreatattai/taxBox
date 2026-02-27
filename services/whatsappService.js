@@ -11,6 +11,7 @@ const {
 } = require('./userService');
 const { generateTaxReport } = require('./pdfService');
 const { calculateTotalTax, calculateCurrentMonthTax, calculateTaxByCategory } = require('./taxCalculator');
+const { emitToUser } = require('./socketService');
 const path = require('path');
 const fs = require('fs');
 
@@ -37,6 +38,33 @@ client.on('ready', () => {
 client.on('authenticated', () => {
   console.log('WhatsApp Client authenticated!');
 });
+
+/**
+ * Helper to save a bot message to the app's internal chat history
+ * and notify the client via socket.
+ */
+async function saveBotMessageToAppChat(user, text) {
+  try {
+    user.chatMessages.push({
+      text: text,
+      sender: 'eunice',
+      timestamp: new Date(),
+      read: false
+    });
+    await user.save();
+
+    // Emit socket event for real-time update
+    emitToUser(user._id, 'chat:received', {
+      text: text,
+      sender: 'eunice',
+      timestamp: new Date()
+    });
+
+    console.log(`✅ Message synced to app chat for user ${user.phone}`);
+  } catch (error) {
+    console.error('Error syncing bot message to app chat:', error);
+  }
+}
 
 // Periodic tax reminder system
 async function startPeriodicTaxReminders() {
@@ -68,6 +96,9 @@ async function startPeriodicTaxReminders() {
           const randomMessage = messages[Math.floor(Math.random() * messages.length)];
 
           await client.sendMessage(chatId, randomMessage);
+
+          // Sync to app chat
+          await saveBotMessageToAppChat(user, randomMessage);
 
           user.lastTaxReminder = now;
           await user.save();
@@ -123,6 +154,9 @@ async function startMonthlyReportSystem() {
 
             await client.sendMessage(chatId, message);
 
+            // Sync to app chat
+            await saveBotMessageToAppChat(user, message);
+
             user.lastMonthlyReport = now;
             await user.save();
           }
@@ -143,11 +177,8 @@ client.on('message', async (message) => {
     const user = await User.findOne({ phone: userPhone });
 
     if (!user) {
-      message.reply(`Hey! I'm Nas, your friendly tax assistant 😊
-
-To start tracking your receipts, you need to register first. Visit our API to register with your phone, TIN, name, and email.
-
-Once you're set up, just send me your receipts and I'll handle the rest!`);
+      const welcomeMsg = `Hey! I'm Nas, your friendly tax assistant 😊\n\nTo start tracking your receipts, you need to register first. Visit our API to register with your phone, TIN, name, and email.\n\nOnce you're set up, just send me your receipts and I'll handle the rest!`;
+      message.reply(welcomeMsg);
       return;
     }
 
@@ -196,11 +227,15 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
 
             const monthName = new Date(targetYear, targetMonth).toLocaleString('en-NG', { month: 'long', year: 'numeric' });
 
-            message.reply(`Perfect ${firstName}! ✅ Payment recorded for ${monthName}.\n\nAmount: ₦${payment.totalTax.toLocaleString('en-NG', { maximumFractionDigits: 2 })}\n\nAll set! Keep those receipts coming! 😊`);
+            const successMsg = `Perfect ${firstName}! ✅ Payment recorded for ${monthName}.\n\nAmount: ₦${payment.totalTax.toLocaleString('en-NG', { maximumFractionDigits: 2 })}\n\nAll set! Keep those receipts coming! 😊`;
+            message.reply(successMsg);
+            await saveBotMessageToAppChat(user, successMsg);
           }
         } catch (error) {
           console.error('Payment proof error:', error);
-          message.reply(`Had trouble saving that ${firstName}. Try again? 😅`);
+          const errorMsg = `Had trouble saving that ${firstName}. Try again? 😅`;
+          message.reply(errorMsg);
+          await saveBotMessageToAppChat(user, errorMsg);
         }
         return;
       }
@@ -262,9 +297,12 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
           }
 
           message.reply(response);
+          await saveBotMessageToAppChat(user, response);
         } catch (error) {
           console.error('Receipt error:', error);
-          message.reply(`Hmm, having trouble with that one ${firstName}. Can you type the details instead? Like "5000 lunch at restaurant" 😊`);
+          const errorMsg = `Hmm, having trouble with that one ${firstName}. Can you type the details instead? Like "5000 lunch at restaurant" 😊`;
+          message.reply(errorMsg);
+          await saveBotMessageToAppChat(user, errorMsg);
         }
       }
     }
@@ -304,22 +342,26 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       response += `\n\nTotal tax: ₦${totalTax.toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 
       message.reply(response);
+      await saveBotMessageToAppChat(user, response);
     }
     // ========== ENHANCED DATA QUERY COMMANDS ==========
     else if (userMessage.toLowerCase().includes('how much tax') || userMessage.toLowerCase().includes('tax owe') || userMessage.toLowerCase().includes('tax do i owe')) {
       const taxStatus = await getUserTaxStatus(user);
       const messageText = generateTaxSummaryMessage(taxStatus, firstName);
       message.reply(messageText);
+      await saveBotMessageToAppChat(user, messageText);
     }
     else if (userMessage.toLowerCase().includes('what\'s my tax') || userMessage.toLowerCase().includes('my tax look') || userMessage.toLowerCase().includes('tax status')) {
       const taxStatus = await getUserTaxStatus(user);
       const messageText = generateTaxSummaryMessage(taxStatus, firstName);
       message.reply(messageText);
+      await saveBotMessageToAppChat(user, messageText);
     }
     else if (userMessage.toLowerCase().includes('tax breakdown') || userMessage.toLowerCase().includes('detailed tax')) {
       const taxStatus = await getUserTaxStatus(user);
       const messageText = generateDetailedTaxMessage(taxStatus, firstName);
       message.reply(messageText);
+      await saveBotMessageToAppChat(user, messageText);
     }
     else if (userMessage.toLowerCase().includes('unpaid') || userMessage.toLowerCase().includes('outstanding')) {
       const taxStatus = await getUserTaxStatus(user);
@@ -337,6 +379,7 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
         response += `Once you pay, send me the payment receipt with "paid" to mark it as settled!`;
 
         message.reply(response);
+        await saveBotMessageToAppChat(user, response);
       }
     }
     else if (userMessage.toLowerCase().includes('current month') || userMessage.toLowerCase().includes('this month')) {
@@ -354,6 +397,7 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       }
 
       message.reply(response);
+      await saveBotMessageToAppChat(user, response);
     }
     else if (userMessage.toLowerCase().includes('category') || userMessage.toLowerCase().includes('categories')) {
       const categoryBreakdown = calculateTaxByCategory(user.taxRecords);
@@ -373,6 +417,7 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       }
 
       message.reply(response);
+      await saveBotMessageToAppChat(user, response);
     }
     else if (userMessage.toLowerCase().includes('receipts list') || userMessage.toLowerCase().includes('my receipts')) {
       const records = user.taxRecords.slice(-10); // Last 10 receipts
@@ -394,6 +439,7 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       response += `Type "report" for full PDF report with all ${user.taxRecords.length} receipts.`;
 
       message.reply(response);
+      await saveBotMessageToAppChat(user, response);
     }
     // ========== END ENHANCED DATA QUERY COMMANDS ==========
     else if (userMessage.toLowerCase().includes('report') || userMessage.toLowerCase().includes('summary')) {
@@ -438,10 +484,9 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       });
 
       message.reply(response);
+      await saveBotMessageToAppChat(user, response);
     }
     else if (userMessage.toLowerCase().includes('help') || userMessage.toLowerCase().includes('menu')) {
-      const totalReceipts = user.taxRecords.length;
-      const totalAmount = user.taxRecords.reduce((sum, r) => sum + r.amount, 0);
       const currentMonthData = calculateCurrentMonthTax(user.taxRecords);
 
       const helpText = `Hey ${firstName}! Here's what I can do:\n\n`;
@@ -457,18 +502,23 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
       const payAction = `✅ Send payment receipt with "paid" to mark as paid\n\n`;
       const current = `This month: ${currentMonthData.receiptsCount} receipt${currentMonthData.receiptsCount !== 1 ? 's' : ''}, ₦${currentMonthData.totalTax.toLocaleString('en-NG', { maximumFractionDigits: 2 })} VAT`;
 
-      message.reply(helpText + options + manual + report + status + taxOwe + breakdown + unpaid + receipts + payments + payAction + current);
+      const fullHelpMsg = helpText + options + manual + report + status + taxOwe + breakdown + unpaid + receipts + payments + payAction + current;
+      message.reply(fullHelpMsg);
+      await saveBotMessageToAppChat(user, fullHelpMsg);
     }
     else if (userMessage.toLowerCase().includes('status') || userMessage.toLowerCase().includes('stats')) {
       const taxStatus = await getUserTaxStatus(user);
       const messageText = generateTaxSummaryMessage(taxStatus, firstName);
       message.reply(messageText);
+      await saveBotMessageToAppChat(user, messageText);
     }
     else if (userMessage.toLowerCase().includes('delete') || userMessage.toLowerCase().includes('clear') || userMessage.toLowerCase().includes('reset')) {
       user.taxRecords = [];
       user.monthlyPayments = [];
       await user.save();
-      message.reply(`Done ${firstName}! All cleared out. Fresh start! 🎉`);
+      const clearMsg = `Done ${firstName}! All cleared out. Fresh start! 🎉`;
+      message.reply(clearMsg);
+      await saveBotMessageToAppChat(user, clearMsg);
     }
     else if (userMessage.toLowerCase().includes('hi') || userMessage.toLowerCase().includes('hello') || userMessage.toLowerCase().includes('hey')) {
       const taxStatus = await getUserTaxStatus(user);
@@ -478,12 +528,16 @@ Once you're set up, just send me your receipts and I'll handle the rest!`);
         `Hi ${firstName}! Ready to track some receipts? You've got ${taxStatus.currentMonth.receiptsCount} this month so far! 📸`,
         `Hello ${firstName}! Your tax is at ₦${taxStatus.totalTaxAllTime.toLocaleString('en-NG', { maximumFractionDigits: 2 })} across ${taxStatus.totalReceipts} receipts. Type "help" to see what I can do!`
       ];
-      message.reply(greetings[Math.floor(Math.random() * greetings.length)]);
+      const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+      message.reply(randomGreeting);
+      await saveBotMessageToAppChat(user, randomGreeting);
     }
     else {
       // General conversational AI response
       const aiResponse = await analyzeReceiptWithOpenAI(null, userMessage, user.name);
-      message.reply(aiResponse.description);
+      const replyText = aiResponse.description;
+      message.reply(replyText);
+      await saveBotMessageToAppChat(user, replyText);
     }
 
   } catch (error) {

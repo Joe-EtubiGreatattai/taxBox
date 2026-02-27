@@ -2,6 +2,7 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { getUserTaxStatus } = require('./userService');
 const taxNewsService = require('./taxNewsService');
+const { emitToUser } = require('./socketService');
 
 class NotificationService {
   // Generate and save notifications for a user
@@ -89,6 +90,30 @@ class NotificationService {
       }));
 
       await Notification.create(notifications);
+
+      // Sync to App Chat for each user and emit socket
+      for (const u of users) {
+        try {
+          const userObj = await User.findById(u._id);
+          if (userObj) {
+            userObj.chatMessages.push({
+              text: `📰 ${top.title}\n\n${top.snippet || top.title}`,
+              sender: 'eunice',
+              timestamp: new Date(),
+              read: false
+            });
+            await userObj.save();
+
+            emitToUser(u._id, 'chat:received', {
+              text: `📰 ${top.title}\n\n${top.snippet || top.title}`,
+              sender: 'eunice',
+              timestamp: new Date()
+            });
+          }
+        } catch (err) {
+          console.error(`Error syncing tax news to user ${u._id}:`, err);
+        }
+      }
     } catch (error) {
       console.error('Error sending tax news digest notifications:', error);
     }

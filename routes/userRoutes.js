@@ -47,6 +47,7 @@ router.post('/login', authLimiter, loginUser);
 router.post('/login/google', authLimiter, loginWithGoogle);
 router.post('/forgot-password', authLimiter, forgotPassword);
 router.get('/user/:phone', generalLimiter, optionalAuth, getUserByPhone);
+router.get('/users/search', generalLimiter, authenticateToken, searchUsers);
 
 // Protected routes (require authentication)
 router.get('/profile', generalLimiter, authenticateToken, getCurrentUser);

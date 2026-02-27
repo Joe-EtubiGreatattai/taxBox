@@ -228,6 +228,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('mark-p2p-read', async ({ senderId }) => {
+    const receiverId = socket.data.userId;
+    if (!receiverId) return;
+
+    try {
+      const P2PMessage = require('./models/P2PMessage');
+      const result = await P2PMessage.updateMany(
+        {
+          senderId: new mongoose.Types.ObjectId(senderId),
+          receiverId: new mongoose.Types.ObjectId(receiverId),
+          read: false
+        },
+        {
+          $set: { read: true, delivered: true }
+        }
+      );
+
+      if (result.modifiedCount > 0) {
+        console.log(`👁️  Messages marked read via socket: ${senderId} → ${receiverId} (${result.modifiedCount} messages)`);
+        io.to(senderId).emit('messages-read', {
+          fromUserId: receiverId,
+          count: result.modifiedCount
+        });
+      }
+    } catch (err) {
+      console.error('Error marking messages as read via socket:', err);
+    }
+  });
+
   socket.on('disconnect', (reason) => {
     console.log('🔌 Socket disconnected:', socket.id, reason);
     const userId = socket.data.userId;

@@ -342,17 +342,31 @@ const sendTestAiNotification = async (req, res) => {
     // Save as notification
     await Notification.create({
       user: userId,
-      type: 'tax', // Using 'tax' type for now or 'info'
+      type: 'tax',
       title: 'Message from Nas',
       message: message,
       actionable: false
     });
 
+    // Sync to Chat History
+    user.chatMessages.push({
+      text: message,
+      sender: 'eunice',
+      timestamp: new Date(),
+      read: false
+    });
+    await user.save();
+
     emitToUser(userId, 'notifications:changed', {});
+    emitToUser(userId, 'chat:received', {
+      text: message,
+      sender: 'eunice',
+      timestamp: new Date()
+    });
 
     res.json({
       success: true,
-      message: 'AI notification sent',
+      message: 'AI notification sent and synced to chat',
       aiMessage: message
     });
 
