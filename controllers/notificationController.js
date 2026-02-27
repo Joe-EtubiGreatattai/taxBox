@@ -11,11 +11,14 @@ const getNotifications = async (req, res) => {
     const { limit = 50, skip = 0, unreadOnly } = req.query;
     const userId = req.user._id;
 
+    console.log(`🔔 Fetching notifications for user: ${userId}`);
     const notifications = await Notification.findByUser(userId, {
       limit: parseInt(limit),
       skip: parseInt(skip),
       unreadOnly: unreadOnly === 'true'
     });
+
+    console.log(`✅ Found ${notifications.length} notifications for user ${userId}`);
 
     const unreadCount = await Notification.getUnreadCount(userId);
 
@@ -212,8 +215,8 @@ const generateSystemNotifications = async (req, res) => {
           user: userId,
           type: 'payment',
           'metadata.monthName': month.monthName,
-          'metadata.year': month.year, // Assuming prompt includes year or we just check monthName for now
-          createdAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Don't spam daily
+          // Removed metadata.year check as it's not always in month object, monthName is unique enough with createdAt check
+          createdAt: { $gt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } // Every 3 days
         });
 
         if (!exists) {
@@ -240,7 +243,7 @@ const generateSystemNotifications = async (req, res) => {
         user: userId,
         type: 'reminder',
         title: 'Monthly Tax Summary',
-        createdAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        createdAt: { $gt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } // Every 3 days
       });
 
       if (!exists) {
